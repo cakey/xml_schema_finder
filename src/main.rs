@@ -54,32 +54,21 @@ impl XMLSchema {
     }
 
     fn add_sub_element(&mut self, parent: &str, sub:&str) {
-        {
-            let last_e = self.elements.get_mut(parent).unwrap();
-            last_e.sub_elements.insert(sub.to_string());
-        }
-        if !self.elements.contains_key(sub) {
-            let new_elem = ElementSchema::new(sub);
-            self.elements.insert(sub.to_string(), new_elem);
-        }
+        self.elements.entry(sub.to_string()).or_insert_with(|| ElementSchema::new(sub));
+        let last_e = self.elements.get_mut(parent).unwrap();
+        last_e.sub_elements.insert(sub.to_string());
     }
 
     fn add_quick_xml_attributes(&mut self, name: &str, e: &BytesStart) -> Result<(),quick_xml::errors::Error> {
 
-
-        if !self.elements.contains_key(name) {
-            let new_elem = ElementSchema::new(name);
-            self.elements.insert(name.to_string(), new_elem);
-        }
-        // not entirely sure how to remove the second hash lookup...
-        let schema = self.elements.get_mut(name).unwrap();
-
+        // seemingly have to choose between two hashes and an allocation in the non insert case
+        let schema = self.elements.entry(name.to_string()).or_insert_with(|| ElementSchema::new(name));
 
         for a in e.attributes() {
             if a.is_ok() {
                 let at = a?;
                 let key = str::from_utf8(&at.key).unwrap().to_string();
-                let mut attribute = schema.attributes.entry(key).or_insert(
+                let mut attribute = schema.attributes.entry(key).or_insert_with(||
                     HashSet::new()
                 );
                 if attribute.len() < 5 {
