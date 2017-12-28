@@ -1,0 +1,9 @@
+[package]
+name = "xml_schema_finder"
+version = "0.1.0"
+authors = ["Ben Shaw <benshaw9@gmail.com>"]
+
+[dependencies]
+quick-xml = "0.10.1"
+indicatif = "0.8.0"
+clap = "2.29.0"
