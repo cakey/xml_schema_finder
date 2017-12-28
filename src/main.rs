@@ -22,6 +22,77 @@ struct ElementSchema {
     examples: HashSet<String>,
 }
 
+impl ElementSchema {
+    fn new(s: &str) -> ElementSchema {
+        ElementSchema{
+            name: s.to_string(),
+            sub_elements: HashSet::new(),
+            attributes: HashMap::new(),
+            examples: HashSet::new(),
+        }
+    }
+}
+
+struct XMLSchema {
+    elements: HashMap<String,ElementSchema>,
+    root_name : String,
+}
+
+impl XMLSchema {
+    fn new() -> XMLSchema {
+        let mut elements = HashMap::new();
+        let r = "__Root__";
+        let root = ElementSchema::new(r);
+        elements.insert(r.to_string(), root);
+        XMLSchema {
+            elements: elements,
+            root_name: r.to_string(),
+        }
+    }
+    fn root_string(&self) -> String {
+        self.root_name.clone()
+    }
+
+    fn add_sub_element(&mut self, parent: &str, sub:&str) {
+        {
+            let last_e = self.elements.get_mut(parent).unwrap();
+            last_e.sub_elements.insert(sub.to_string());
+        }
+        if !self.elements.contains_key(sub) {
+            let new_elem = ElementSchema::new(sub);
+            self.elements.insert(sub.to_string(), new_elem);
+        }
+    }
+
+    fn add_quick_xml_attributes(&mut self, name: &str, e: &BytesStart) -> Result<(),quick_xml::errors::Error> {
+
+
+        if !self.elements.contains_key(name) {
+            let new_elem = ElementSchema::new(name);
+            self.elements.insert(name.to_string(), new_elem);
+        }
+        // not entirely sure how to remove the second hash lookup...
+        let schema = self.elements.get_mut(name).unwrap();
+
+
+        for a in e.attributes() {
+            if a.is_ok() {
+                let at = a?;
+                let key = str::from_utf8(&at.key).unwrap().to_string();
+                let mut attribute = schema.attributes.entry(key).or_insert(
+                    HashSet::new()
+                );
+                if attribute.len() < 5 {
+                    let mut value = str::from_utf8(&at.value).unwrap().to_string();
+                    truncate_next_with_ellipses(&mut value, 50);
+                    attribute.insert(value);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 fn main() {
     let matches = App::new("XML Schema Finder")
         .version("1.0")
@@ -60,24 +131,6 @@ fn main() {
     }
 }
 
-fn add_attributes(schema: &mut ElementSchema, e: &BytesStart) -> Result<(),quick_xml::errors::Error> {
-    for a in e.attributes() {
-        if a.is_ok() {
-            let at = a?;
-            let key = str::from_utf8(&at.key).unwrap().to_string();
-            let mut attribute = schema.attributes.entry(key).or_insert(
-                HashSet::new()
-            );
-            if attribute.len() < 5 {
-                let mut value = str::from_utf8(&at.value).unwrap().to_string();
-                truncate_next_with_ellipses(&mut value, 20);
-                attribute.insert(value);
-            }
-        }
-    }
-    Ok(())
-}
-
 fn truncate_next_with_ellipses(s: &mut String, v1: usize) -> () {
     let len = s.len();
     let mut v = v1;
@@ -109,20 +162,10 @@ fn get_schema(file: &str, max_events: u64, debug: bool) -> Result<(), quick_xml:
         s.push_str("\t");
     }
 
-    let root_str = "__Root__";
-    let mut elements:HashMap<String,ElementSchema> = HashMap::new();
+    let mut elements = XMLSchema::new();
 
-
-    let mut others = 0;
-    let root_element = ElementSchema{
-        name: root_str.to_string(),
-        sub_elements: HashSet::new(),
-        attributes: HashMap::new(),
-        examples: HashSet::new(),
-    };
-    elements.insert(root_str.to_string(), root_element);
-    let mut element_stack= Vec::new();
-    element_stack.push(root_str.to_string());
+    let mut element_stack = Vec::new();
+    element_stack.push(elements.root_string());
     loop {
         if event_count >= max_events {
             break;
@@ -140,26 +183,17 @@ fn get_schema(file: &str, max_events: u64, debug: bool) -> Result<(), quick_xml:
             Ok(Event::Start(ref e)) => {
 
                 let name = str::from_utf8(&e.name()).unwrap();
-                {
-                    let last = element_stack.last().unwrap();
-                    let last_e = elements.get_mut(last).unwrap();
-                    last_e.sub_elements.insert(name.to_string());
-                }
-                let mut schema = elements.entry(name.to_string()).or_insert(ElementSchema{
-                    name: name.to_string(),
-                    sub_elements: HashSet::new(),
-                    attributes: HashMap::new(),
-                    examples: HashSet::new()
-                });
-                element_stack.push(name.to_string());
 
-                add_attributes(&mut schema, e)?;
+                elements.add_sub_element(element_stack.last().unwrap(), name);
+
+                elements.add_quick_xml_attributes(name, e)?;
+
+                element_stack.push(name.to_string());
 
                 if debug {
                     println!("{}start: {}", idents[ident], e.unescape_and_decode(&reader)?);
                     ident += 1;
                 }
-                // attributes ?
             },
             Ok(Event::End(_)) => {
                 element_stack.pop();
@@ -171,19 +205,8 @@ fn get_schema(file: &str, max_events: u64, debug: bool) -> Result<(), quick_xml:
             Ok(Event::Empty(ref e)) => {
 
                 let name = str::from_utf8(&e.name()).unwrap();
-                {
-                    let last = element_stack.last().unwrap();
-                    let last_e = elements.get_mut(last).unwrap();
-                    last_e.sub_elements.insert(name.to_string());
-                }
-                let mut schema = elements.entry(name.to_string()).or_insert(ElementSchema{
-                    name: name.to_string(),
-                    sub_elements: HashSet::new(),
-                    attributes: HashMap::new(),
-                    examples: HashSet::new()
-                });
-
-                add_attributes(&mut schema, e)?;
+                elements.add_sub_element(element_stack.last().unwrap(), name);
+                elements.add_quick_xml_attributes(name, e)?;
 
                 if debug {
                     println!("{}empty: {}", idents[ident], e.unescape_and_decode(&reader)?);
@@ -191,7 +214,7 @@ fn get_schema(file: &str, max_events: u64, debug: bool) -> Result<(), quick_xml:
             }
             Ok(Event::Text(ref e)) => {
                 let last = element_stack.last().unwrap();
-                let last_e = elements.get_mut(last).unwrap();
+                let last_e = elements.elements.get_mut(last).unwrap();
                 if last_e.examples.len() < 5 {
                     let mut text = e.unescape_and_decode(&reader)?;
                     truncate_next_with_ellipses(&mut text, 100);
@@ -213,14 +236,12 @@ fn get_schema(file: &str, max_events: u64, debug: bool) -> Result<(), quick_xml:
             }
             f => {
                 println!("Other: {:?}", f);
-                others += 1;
-
             }
         }
         buf.clear();
     }
     // TODO: handle circular dependencies
-    for elem in elements.iter() {
+    for elem in elements.elements.iter() {
         println!("{:?}", elem);
     }
 
