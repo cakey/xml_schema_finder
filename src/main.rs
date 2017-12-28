@@ -1,18 +1,16 @@
-extern crate quick_xml;
-extern crate indicatif;
 extern crate clap;
-use clap::{Arg, App};
+extern crate indicatif;
+extern crate quick_xml;
 
+use clap::{App, Arg};
 use quick_xml::reader::Reader;
-use quick_xml::events::{Event, BytesStart};
-
+use quick_xml::events::{BytesStart, Event};
 use indicatif::{ProgressBar, ProgressStyle};
 
 use std::fs;
 use std::str;
 use std::collections::HashMap;
 use std::collections::HashSet;
-
 
 #[derive(Debug)]
 struct ElementSchema {
@@ -24,7 +22,7 @@ struct ElementSchema {
 
 impl ElementSchema {
     fn new(s: &str) -> ElementSchema {
-        ElementSchema{
+        ElementSchema {
             name: s.to_string(),
             sub_elements: HashSet::new(),
             attributes: HashMap::new(),
@@ -34,8 +32,8 @@ impl ElementSchema {
 }
 
 struct XMLSchema {
-    elements: HashMap<String,ElementSchema>,
-    root_name : String,
+    elements: HashMap<String, ElementSchema>,
+    root_name: String,
 }
 
 impl XMLSchema {
@@ -53,24 +51,32 @@ impl XMLSchema {
         self.root_name.clone()
     }
 
-    fn add_sub_element(&mut self, parent: &str, sub:&str) {
-        self.elements.entry(sub.to_string()).or_insert_with(|| ElementSchema::new(sub));
+    fn add_sub_element(&mut self, parent: &str, sub: &str) {
+        self.elements
+            .entry(sub.to_string())
+            .or_insert_with(|| ElementSchema::new(sub));
         let last_e = self.elements.get_mut(parent).unwrap();
         last_e.sub_elements.insert(sub.to_string());
     }
 
-    fn add_quick_xml_attributes(&mut self, name: &str, e: &BytesStart) -> Result<(),quick_xml::errors::Error> {
-
+    fn add_quick_xml_attributes(
+        &mut self,
+        name: &str,
+        e: &BytesStart,
+    ) -> Result<(), quick_xml::errors::Error> {
         // seemingly have to choose between two hashes and an allocation in the non insert case
-        let schema = self.elements.entry(name.to_string()).or_insert_with(|| ElementSchema::new(name));
+        let schema = self.elements
+            .entry(name.to_string())
+            .or_insert_with(|| ElementSchema::new(name));
 
         for a in e.attributes() {
             if a.is_ok() {
                 let at = a?;
                 let key = str::from_utf8(&at.key).unwrap().to_string();
-                let mut attribute = schema.attributes.entry(key).or_insert_with(||
-                    HashSet::new()
-                );
+                let mut attribute = schema
+                    .attributes
+                    .entry(key)
+                    .or_insert_with(|| HashSet::new());
                 if attribute.len() < 5 {
                     let mut value = str::from_utf8(&at.value).unwrap().to_string();
                     truncate_next_with_ellipses(&mut value, 50);
@@ -108,12 +114,16 @@ fn main() {
 
     let file = matches.value_of("file").unwrap();
 
-    let num_events = matches.value_of("num_events").unwrap().parse::<u64>().unwrap();
+    let num_events = matches
+        .value_of("num_events")
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
 
     let debug = matches.is_present("debug");
 
     match get_schema(file, num_events, debug) {
-    Ok(()) => {}
+        Ok(()) => {}
         Err(e) => {
             println!("Error in dedupe: {}", e);
         }
@@ -137,9 +147,7 @@ fn get_schema(file: &str, max_events: u64, debug: bool) -> Result<(), quick_xml:
     let file_size = fs::metadata(file)?.len();
     reader.trim_text(true);
     let bar = ProgressBar::new(file_size);
-    bar.set_style(
-        ProgressStyle::default_bar().template("[{elapsed}] {wide_bar} {percent}%"),
-    );
+    bar.set_style(ProgressStyle::default_bar().template("[{elapsed}] {wide_bar} {percent}%"));
 
     let mut event_count = 0;
     let mut buf = Vec::new();
@@ -161,16 +169,18 @@ fn get_schema(file: &str, max_events: u64, debug: bool) -> Result<(), quick_xml:
         }
         event_count += 1;
         if event_count % 1000 == 0 {
-            if (event_count as f32 / max_events as f32) > (reader.buffer_position() as f32 / file_size as f32) {
-                bar.set_position(((event_count as f32 / max_events as f32) * file_size as f32) as u64 + 1);
+            if (event_count as f32 / max_events as f32)
+                > (reader.buffer_position() as f32 / file_size as f32)
+            {
+                bar.set_position(
+                    ((event_count as f32 / max_events as f32) * file_size as f32) as u64 + 1,
+                );
             } else {
                 bar.set_position(reader.buffer_position() as u64);
             }
-
         }
         match reader.read_event(&mut buf) {
             Ok(Event::Start(ref e)) => {
-
                 let name = str::from_utf8(&e.name()).unwrap();
 
                 elements.add_sub_element(element_stack.last().unwrap(), name);
@@ -180,10 +190,14 @@ fn get_schema(file: &str, max_events: u64, debug: bool) -> Result<(), quick_xml:
                 element_stack.push(name.to_string());
 
                 if debug {
-                    println!("{}start: {}", idents[ident], e.unescape_and_decode(&reader)?);
+                    println!(
+                        "{}start: {}",
+                        idents[ident],
+                        e.unescape_and_decode(&reader)?
+                    );
                     ident += 1;
                 }
-            },
+            }
             Ok(Event::End(_)) => {
                 element_stack.pop();
                 if debug {
@@ -192,13 +206,16 @@ fn get_schema(file: &str, max_events: u64, debug: bool) -> Result<(), quick_xml:
                 }
             }
             Ok(Event::Empty(ref e)) => {
-
                 let name = str::from_utf8(&e.name()).unwrap();
                 elements.add_sub_element(element_stack.last().unwrap(), name);
                 elements.add_quick_xml_attributes(name, e)?;
 
                 if debug {
-                    println!("{}empty: {}", idents[ident], e.unescape_and_decode(&reader)?);
+                    println!(
+                        "{}empty: {}",
+                        idents[ident],
+                        e.unescape_and_decode(&reader)?
+                    );
                 }
             }
             Ok(Event::Text(ref e)) => {
@@ -215,7 +232,7 @@ fn get_schema(file: &str, max_events: u64, debug: bool) -> Result<(), quick_xml:
                     truncate_next_with_ellipses(&mut text, 1000);
                     println!("{}text: {}", idents[ident], text);
                 }
-            },
+            }
             Err(e) => {
                 println!("Error: {:?}", e);
                 break;
