@@ -1,3 +1,7 @@
+// TODO: cleanup an indent printer... crate?
+// TODO: move examples to the XMLSchema
+// Add attributes to output.
+// output serde
 extern crate clap;
 extern crate indicatif;
 extern crate quick_xml;
@@ -85,6 +89,29 @@ impl XMLSchema {
             }
         }
         Ok(())
+    }
+
+    // max recur lazily sidesteps the issue of cycles
+    fn print(&self, element: &str, ident: u32, max_recur: u32) {
+        if ident > max_recur {
+            return
+        }
+        // check element
+        for _ in 0..ident {
+            print!("\t");
+        }
+        print!("<{}>\n", element);
+        let schema = self.elements.get(element).unwrap();
+        for example in schema.examples.iter() {
+            for _ in 0..ident+1 {
+                print!("\t");
+            }
+            print!(":: {}\n", example);
+        }
+
+        for elem in schema.sub_elements.iter() {
+            self.print(&elem, ident+1, max_recur);
+        }
     }
 }
 
@@ -250,6 +277,8 @@ fn get_schema(file: &str, max_events: u64, debug: bool) -> Result<(), quick_xml:
     for elem in elements.elements.iter() {
         println!("{:?}", elem);
     }
+
+    elements.print(&elements.root_string(), 0, 10);
 
     Ok(())
 }
